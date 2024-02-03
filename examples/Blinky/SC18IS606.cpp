@@ -1,6 +1,7 @@
-#include <SC18IS602B.h>
+#include "SC18IS606.h"
 #include <Arduino.h>
 #include <Wire.h>
+
 
 SC18IS602B::SC18IS602B(int resetPin, bool a0, bool a1, bool a2)
     : resetPin(resetPin) {
@@ -19,16 +20,16 @@ void SC18IS602B::reset() {
         //Generate a high-to-low-to-high transition
         //must be at least 50ns long (t_sa). 1ms is enough.
         digitalWrite(resetPin, HIGH);
-        delay(1);
+        delay(10);
         digitalWrite(resetPin, LOW);
-        delay(1);
+        delay(10);
         digitalWrite(resetPin, HIGH);
     }
 }
 
 bool SC18IS602B::enableGPIO(int num, bool enable) {
     //sanity check
-    if(num < 0 || num > 3)
+    if(num < 0 || num > 2)
         return false;
     //enable this GPIO while leaving the others untouched.
     bitWrite(gpioEnable, num, enable);
@@ -38,7 +39,7 @@ bool SC18IS602B::enableGPIO(int num, bool enable) {
 
 bool SC18IS602B::setupGPIO(int num, SC18IS601B_GPIOPinMode mode) {
     //sanity check
-    if(num < 0 || num > 3)
+    if(num < 0 || num > 2)
         return false;
 
     //Cast the enum back to the bits
@@ -54,7 +55,7 @@ bool SC18IS602B::setupGPIO(int num, SC18IS601B_GPIOPinMode mode) {
 }
 
 bool SC18IS602B::writeGPIO(int num, bool val) {
-    if(num < 0 || num > 3)
+    if(num < 0 || num > 2)
         return false;
     //Re-write old value
     bitWrite(gpioWrite, num, val);
@@ -77,6 +78,8 @@ bool SC18IS602B::writeGPIOBank(bool gpio0, bool gpio1, bool gpio2, bool gpio3) {
 bool SC18IS602B::readGPIO(int num) {
     if(num < 0 || num > 3)
         return false;
+
+    printf("readGPIO %d\n", num);
 
     //refer chapter 7.1.9
     //issue a read command.
@@ -104,7 +107,10 @@ bool SC18IS602B::clearInterrupt() {
     return this->i2c_write(SC18IS601B_CLEAR_INTERRUPT_CMD, nullptr, 0);
 }
 
-bool SC18IS602B::i2c_write(uint8_t cmdByte, const uint8_t* data, size_t len) {
+bool SC18IS602B::i2c_write(uint8_t cmdByte, const uint8_t* data, size_t len) 
+{    
+    printf("\ni2c_write address 0x%x, cmdByte 0x%x\n", address, cmdByte);
+    
     Wire.beginTransmission(address);
     Wire.write(cmdByte);
     Wire.write(data, len);
@@ -124,7 +130,14 @@ bool SC18IS602B::configureSPI(bool lsbFirst, SC18IS601B_SPI_Mode spiMode,
 }
 
 void SC18IS602B::begin() {
-    Wire.begin();
+  //Wire.begin(3,2);
+  Wire.begin(6,7);
+  Wire.setClock(4000);       // I2C frequency at 400 kHz
+  delay(500);
+  
+  printf("Scan for I2C devices:\n");
+  I2C_Scan();
+  delay(500); 
 }
 
 #ifdef ARDUINO_ARCH_ESP8266
@@ -140,6 +153,7 @@ uint8_t SC18IS602B::spiTransfer(int slaveNum, uint8_t txByte) {
 }
 
 size_t SC18IS602B::i2c_read(uint8_t* readBuf, size_t len) {
+    printf("Reading %d bytes from device 0x%x\n", len, address);
     while (Wire.requestFrom(address,len) == 0);
     return Wire.readBytes(readBuf, len);
 }
@@ -162,4 +176,87 @@ bool SC18IS602B::spiTransfer(int slaveNum, const uint8_t* txData, size_t txLen,
         return false;
     //read in the data that came from MISO
     return i2c_read(readBuf, txLen);
+}
+
+bool SC18IS602B::checkVersion()
+{
+    char version[16]= "SC18IS606 1.0.0";
+    char versionRead[16]= ""; //"SC18IS606 1.0.0";
+
+    printf("checkVersion :");
+
+    if(!this->i2c_write(SC18IS601B_READ_VERSION_CMD, nullptr, 0))
+        return false;
+    
+    int numRead = this->i2c_read((uint8_t*)versionRead, sizeof(versionRead));
+    if(numRead == 0)
+    {
+        printf("Nothing read");
+        return false;
+    }
+
+    for(int i = 0 ; i < numRead ; i++)
+    {
+        printf("0x%02x ", versionRead[i]);
+    }
+
+    int start = 0;
+    for(int i = 0 ; i < numRead ; i++)
+    {
+        if (versionRead[i] == 0)
+            start++;
+        else
+            break;
+    }
+    if(start != numRead)
+        printf("\n versionRead = %s", &versionRead[start]);
+        //printf("start %d\n", start);
+
+    if(strcmp(version, versionRead) == 0)
+        return true;
+    
+    return false;
+
+}
+
+
+void SC18IS602B::I2C_Scan() {
+  byte error, address;
+  int nDevices;
+
+  Serial.println("Scanning...");
+
+  nDevices = 0;
+  for(address = 1; address < 127; address++ )
+  {
+    // The i2c_scanner uses the return value of
+    // the Write.endTransmisstion to see if
+    // a device did acknowledge to the address.
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+
+    if (error == 0)
+    {
+      Serial.print("I2C device found at address 0x");
+      if (address<16)
+        Serial.print("0");
+      Serial.print(address,HEX);
+      Serial.println("  !");
+
+      nDevices++;
+    }
+    else if (error==4)
+    {
+      Serial.print("Unknown error at address 0x");
+      if (address<16)
+        Serial.print("0");
+      Serial.println(address,HEX);
+    }
+  }
+  if (nDevices == 0)
+    Serial.println("No I2C devices found\n");
+  else
+    Serial.println("done\n");
+
+  delay(5000);           // wait 5 seconds for next scan
 }

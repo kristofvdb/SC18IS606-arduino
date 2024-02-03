@@ -42,6 +42,7 @@ enum SC18IS601B_SPI_Mode {
 #define SC18IS601B_GPIO_READ_CMD            0xF5
 #define SC18IS601B_GPIO_ENABLE_CMD          0xF6
 #define SC18IS601B_GPIO_CONFIGURATION_CMD   0xF7
+#define SC18IS601B_READ_VERSION_CMD         0xFE
 
 #define SC18IS601B_DATABUFFER_DEPTH         200
 
@@ -52,7 +53,8 @@ public:
 
     /* if resetPin = -1 it will be ignored */
     SC18IS602B(int resetPin, bool a0, bool a1, bool a2);
-
+    bool checkVersion();
+    void I2C_Scan();
     /* calls into Wire.begin() */
     void begin();
 
